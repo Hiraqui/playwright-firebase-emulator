@@ -33,7 +33,7 @@ export default async function DashboardLayout({
     <>
       <div className="flex flex-col items-center justify-center gap-2">
         <h1 className="font-display text-3xl font-bold transition-colors mb-6 sm:text-5xl">
-          Welcome
+          Hey! Welcome
         </h1>
         <h2 className="text-2xl">{currentUser.email}</h2>
         <h2 className="text-2xl">{currentUser.displayName}</h2>
