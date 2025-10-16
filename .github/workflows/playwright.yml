@@ -26,6 +26,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "types.d.ts"
+  workflow_dispatch:
 jobs:
   test:
     timeout-minutes: 60
