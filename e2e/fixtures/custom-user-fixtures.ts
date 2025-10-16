@@ -61,37 +61,35 @@ export const test = base.extend<AuthenticatedFixtures>({
    * Dashboard page fixture that performs authentication with predefined user data.
    * Handles complete sign-in flow and dashboard page initialization.
    */
-  dashboardPage: async ({ page, homePage, user, context }, use) => {
-    // User is authenticated via the user fixture
-    void user; // Ensure user fixture is used
+  dashboardPage: [
+    async ({ page, homePage, user, context }, use) => {
+      // User is authenticated via the user fixture
+      void user; // Ensure user fixture is used
 
-    // Navigate to home page
-    await homePage.goto();
+      // Navigate to home page
+      await homePage.goto();
 
-    // Verify sign-in button is present and click it
-    await expect(homePage.signInButton).toBeVisible();
-    const pagePromise = context.waitForEvent("page");
-    await homePage.signInButton.click();
+      // Verify sign-in button is present and click it
+      await expect(homePage.signInButton).toBeVisible();
+      const pagePromise = context.waitForEvent("page");
+      await homePage.signInButton.click();
 
-    // Handle Google sign-in page
-    const googleSignInPage = new GoogleSignInPage(await pagePromise);
-    await googleSignInPage.waitForPageLoad();
-    await googleSignInPage.fillUserAndLogin(user);
-    const dashboardPage = new DashboardPage(page);
+      // Handle Google sign-in page
+      const googleSignInPage = new GoogleSignInPage(await pagePromise);
+      await googleSignInPage.waitForPageLoad();
+      await googleSignInPage.fillUserAndLogin(user);
 
-    // Try signing in with more robust error handling
-    await expect(async () => {
-      await googleSignInPage.page.waitForTimeout(1000);
-      await googleSignInPage.signInWithGoogleButton.click();
-
-      // Wait for navigation to dashboard after successful authentication
+      await googleSignInPage.page.waitForTimeout(1_000);
+      await googleSignInPage.signInWithGoogleButton.click({ timeout: 15_000 });
 
       // Create dashboard page object and wait for intro step
-      await dashboardPage.waitForPageLoad();
-    }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
+      await expect(homePage.page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
 
-    await use(dashboardPage);
-  },
+      const dashboardPage = new DashboardPage(page);
+      await use(dashboardPage);
+    },
+    { timeout: 45_000 },
+  ],
 });
 
 export { expect };

@@ -56,17 +56,14 @@ export const test = base.extend<AuthenticatedFixtures>({
         await googleSignInPage.page.waitForTimeout(1000);
         await googleSignInPage.signInWithGoogleButton.click();
 
-        // Wait for navigation to dashboard after successful authentication
-
         // Create dashboard page object and wait for intro step
-        const dashboardPage = new DashboardPage(homePage.page);
-        await dashboardPage.waitForPageLoad();
+        await expect(homePage.page).toHaveURL(/\/dashboard/);
       }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
 
       // Use the authenticated user
       await use(user);
     },
-    { timeout: 60_000 },
+    { timeout: 45_000 },
   ],
 
   /**

@@ -17,8 +17,6 @@ export class GoogleSignInPage {
   readonly emailInput: Locator;
   /** Display name input field locator */
   readonly nameInput: Locator;
-  /** Final sign-in button locator */
-  readonly signInWithGoogleButton: Locator;
 
   /**
    * Creates a new GoogleSignInPage instance.
@@ -38,9 +36,11 @@ export class GoogleSignInPage {
     });
     this.emailInput = page.getByLabel("Email");
     this.nameInput = page.getByLabel("Display name");
-    this.signInWithGoogleButton = page.getByRole("button", {
-      name: "Sign in with Google.com",
-    });
+  }
+
+  /** Final sign-in button locator */
+  get signInWithGoogleButton(): Locator {
+    return this.page.getByRole("button", { name: "Sign in with Google.com" });
   }
 
   /**
@@ -104,6 +104,8 @@ export class GoogleSignInPage {
 
     await expect(this.emailInput).toHaveValue(email);
     await expect(this.nameInput).toHaveValue(name);
+
+    await expect(this.signInWithGoogleButton).toBeEnabled();
 
     return { name, email };
   }

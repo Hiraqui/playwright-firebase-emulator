@@ -53,17 +53,22 @@ This project demonstrates comprehensive E2E testing patterns using:
 // Page Object Model for Google Sign-In
 export class GoogleSignInPage {
   readonly page: Page;
-  readonly signInWithGoogleButton: Locator;
   readonly generateUserButton: Locator;
+  readonly emailInput: Locator;
+  readonly nameInput: Locator;
 
   constructor(page: Page) {
     this.page = page;
-    this.signInWithGoogleButton = page.getByRole("button", {
-      name: "Sign in with Google.com",
-    });
     this.generateUserButton = page.getByRole("button", {
       name: "Auto-generate user information",
     });
+    this.emailInput = page.getByLabel("Email");
+    this.nameInput = page.getByLabel("Display name");
+  }
+
+  /** Final sign-in button locator */
+  get signInWithGoogleButton(): Locator {
+    return this.page.getByRole("button", { name: "Sign in with Google.com" });
   }
 
   async generateNewUserAndLogin() {
@@ -81,18 +86,31 @@ export class GoogleSignInPage {
 ```typescript
 // Authenticated test fixtures with automatic user setup
 export const test = base.extend<AuthenticatedFixtures>({
-  user: async ({ homePage, context }, use) => {
-    await homePage.goto();
-    const pagePromise = context.waitForEvent("page");
-    await homePage.signInButton.click();
+  user: [
+    async ({ homePage, context }, use) => {
+      await homePage.goto();
+      await expect(homePage.signInButton).toBeVisible();
+      const pagePromise = context.waitForEvent("page");
+      await homePage.signInButton.click();
 
-    const googleSignInPage = new GoogleSignInPage(await pagePromise);
-    const user = await googleSignInPage.generateNewUserAndLogin();
+      const googleSignInPage = new GoogleSignInPage(await pagePromise);
+      await googleSignInPage.waitForPageLoad();
+      const user = await googleSignInPage.generateNewUserAndLogin();
 
-    await use(user);
-  },
+      // Robust authentication with retry logic
+      await expect(async () => {
+        await googleSignInPage.page.waitForTimeout(1000);
+        await googleSignInPage.signInWithGoogleButton.click();
+        await expect(homePage.page).toHaveURL(/\/dashboard/);
+      }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
+
+      await use(user);
+    },
+    { timeout: 45_000 },
+  ],
 
   dashboardPage: async ({ page, user }, use) => {
+    void user; // Ensure user fixture is used
     const dashboardPage = new DashboardPage(page);
     await dashboardPage.waitForPageLoad();
     await use(dashboardPage);
@@ -128,7 +146,7 @@ export const test = base.extend<AuthenticatedFixtures>({
    Create a `.env.local` file with:
 
    ```env
-   NEXT_PUBLIC_FIREBASE_EMULATOR_HOST=localhost
+   NEXT_PUBLIC_FIREBASE_EMULATOR_HOST=127.0.0.1
    NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR=true
    NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT=9099
    ```
@@ -185,17 +203,29 @@ export class HomePage {
 
 ### Firebase Auth Emulator Integration
 
-The emulator provides realistic authentication testing:
+The emulator provides realistic authentication testing with two approaches:
 
 ```typescript
 // GoogleSignInPage handles emulator interactions
 export class GoogleSignInPage {
+  // Method 1: Auto-generate new users (used by base-fixtures.ts)
   async generateNewUserAndLogin() {
     await this.addAccountButton.click();
+    await this.waitForFormLoad();
     await this.generateUserButton.click(); // Auto-generates test user
 
     const email = await this.emailInput.inputValue();
     const name = await this.nameInput.inputValue();
+    return { name, email };
+  }
+
+  // Method 2: Use predefined user data (used by custom-user-fixtures.ts)
+  async fillUserAndLogin({ name, email }: { name: string; email: string }) {
+    await this.addAccountButton.click();
+    await this.waitForFormLoad();
+    await this.emailInput.pressSequentially(email);
+    await this.nameInput.pressSequentially(name);
+    await expect(this.signInWithGoogleButton).toBeEnabled();
     return { name, email };
   }
 }
@@ -209,11 +239,30 @@ Two fixture patterns are available:
 
 ```typescript
 export const test = base.extend<AuthenticatedFixtures>({
-  user: async ({ homePage, context }, use) => {
-    // Automatically generates new user for each test
-    const user = await googleSignInPage.generateNewUserAndLogin();
-    await use(user);
-  },
+  user: [
+    async ({ homePage, context }, use) => {
+      // Navigate to home and initiate sign-in
+      await homePage.goto();
+      await expect(homePage.signInButton).toBeVisible();
+      const pagePromise = context.waitForEvent("page");
+      await homePage.signInButton.click();
+
+      // Generate new user with Firebase Auth Emulator
+      const googleSignInPage = new GoogleSignInPage(await pagePromise);
+      await googleSignInPage.waitForPageLoad();
+      const user = await googleSignInPage.generateNewUserAndLogin();
+
+      // Complete authentication with robust error handling
+      await expect(async () => {
+        await googleSignInPage.page.waitForTimeout(1000);
+        await googleSignInPage.signInWithGoogleButton.click();
+        await expect(homePage.page).toHaveURL(/\/dashboard/);
+      }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
+
+      await use(user);
+    },
+    { timeout: 45_000 },
+  ],
 });
 ```
 
@@ -223,16 +272,43 @@ export const test = base.extend<AuthenticatedFixtures>({
 const TEST_USERS = [
   { email: "alice.smith@test.com", name: "Alice Smith" },
   { email: "bob.johnson@test.com", name: "Bob Johnson" },
-  // ... more predefined users
-];
+  { email: "carol.williams@test.com", name: "Carol Williams" },
+  { email: "david.brown@test.com", name: "David Brown" },
+  { email: "emma.jones@test.com", name: "Emma Jones" },
+  { email: "frank.garcia@test.com", name: "Frank Garcia" },
+] as const;
 
 export const test = base.extend<AuthenticatedFixtures>({
   user: async ({}, use) => {
-    // Assigns different users to parallel workers
+    // Assigns different users to parallel workers to avoid conflicts
     const workerId = parseInt(process.env.TEST_WORKER_INDEX || "0", 10);
     const selectedUser = TEST_USERS[workerId % TEST_USERS.length];
     await use(selectedUser);
   },
+
+  dashboardPage: [
+    async ({ page, homePage, user, context }, use) => {
+      // Navigate and authenticate with predefined user
+      await homePage.goto();
+      await expect(homePage.signInButton).toBeVisible();
+      const pagePromise = context.waitForEvent("page");
+      await homePage.signInButton.click();
+
+      // Use predefined user data for authentication
+      const googleSignInPage = new GoogleSignInPage(await pagePromise);
+      await googleSignInPage.waitForPageLoad();
+      await googleSignInPage.fillUserAndLogin(user);
+
+      // Complete sign-in with explicit timeouts
+      await googleSignInPage.page.waitForTimeout(1_000);
+      await googleSignInPage.signInWithGoogleButton.click({ timeout: 15_000 });
+      await expect(homePage.page).toHaveURL(/\/dashboard/, { timeout: 15_000 });
+
+      const dashboardPage = new DashboardPage(page);
+      await use(dashboardPage);
+    },
+    { timeout: 45_000 },
+  ],
 });
 ```
 
@@ -297,7 +373,8 @@ const user = {
 ### User Session Management
 
 - **Server-side authentication** verification in middleware
-- **Automatic redirects** for unauthenticated users
+- **Automatic redirects** for unauthenticated users to sign-in
+- **Dashboard redirect** for authenticated users
 - **Session persistence** across test scenarios
 - **Clean isolation** between test runs
 
@@ -376,7 +453,7 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 
 # Emulator Configuration (for development and testing)
-NEXT_PUBLIC_FIREBASE_EMULATOR_HOST=localhost     # Host address - determines if emulators are used
+NEXT_PUBLIC_FIREBASE_EMULATOR_HOST=127.0.0.1     # Host address - determines if emulators are used
 NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR=true          # Enable Firebase Auth emulator connection
 NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT=9099     # Port for Firebase Auth emulator
 ```
@@ -449,7 +526,7 @@ jobs:
       - name: Run Playwright tests
         run: npm run test:e2e
         env:
-          NEXT_PUBLIC_FIREBASE_EMULATOR_HOST: localhost
+          NEXT_PUBLIC_FIREBASE_EMULATOR_HOST: 127.0.0.1
           NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR: true
           NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT: 9099
 
@@ -509,10 +586,18 @@ Tests use explicit wait patterns for reliability:
 ```typescript
 // Wait for authentication flow completion
 await expect(async () => {
+  await googleSignInPage.page.waitForTimeout(1000); // Allow form to stabilize
   await googleSignInPage.signInWithGoogleButton.click();
   await dashboardPage.waitForPageLoad();
 }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
 ```
+
+**Note**: The `waitForTimeout(1000)` before clicking the sign-in button allows the Firebase Auth Emulator form to fully stabilize, preventing timing-related authentication failures.
+
+#### Two Authentication Flow Approaches
+
+- **`base-fixtures.ts`**: Uses retry logic with `toPass()` for maximum reliability in flaky environments
+- **`custom-user-fixtures.ts`**: Uses direct authentication with explicit timeouts for faster, more predictable execution
 
 ### Fixture Pattern Benefits
 
@@ -522,6 +607,20 @@ Custom fixtures provide:
 - **Test isolation**: Each test gets clean state
 - **Parallel execution**: Multiple users prevent conflicts
 - **Reusable patterns**: Authentication logic centralized
+
+#### Choosing the Right Fixture Pattern
+
+- **Use `base-fixtures.ts`** when:
+
+  - Testing with fresh user data each time
+  - User data doesn't matter for the test logic
+  - You want maximum test isolation
+
+- **Use `custom-user-fixtures.ts`** when:
+  - Testing with consistent, predictable user data
+  - Running parallel tests that need different users
+  - User-specific data affects test behavior
+  - You prefer direct authentication flow with explicit timeouts over retry logic
 
 ## 🧪 Test Examples
 
@@ -572,11 +671,12 @@ test("should handle Google sign-in flow", async ({ page, context }) => {
   // Generate new test user
   const user = await googleSignInPage.generateNewUserAndLogin();
 
-  // Complete sign-in process
-  await googleSignInPage.signInWithGoogleButton.click();
-
-  // Verify successful redirect to dashboard
-  await expect(page).toHaveURL("/dashboard");
+  // Complete sign-in process with robust error handling
+  await expect(async () => {
+    await googleSignInPage.page.waitForTimeout(1000);
+    await googleSignInPage.signInWithGoogleButton.click();
+    await expect(page).toHaveURL(/\/dashboard/);
+  }).toPass({ intervals: [1000, 2000, 3000], timeout: 45_000 });
 });
 ```
 
@@ -600,11 +700,15 @@ open http://localhost:4000
 // Increase timeout for authentication flows
 test.setTimeout(60_000);
 
-// Use robust wait strategies
+// Use robust wait strategies with retry logic
 await expect(async () => {
   await someAction();
   expect(condition).toBeTruthy();
 }).toPass({ timeout: 45_000 });
+
+// Alternative: Direct approach with explicit timeouts
+await someAction();
+await expect(condition).toBeTruthy({ timeout: 15_000 });
 ```
 
 **Browser Popup Blocking**
