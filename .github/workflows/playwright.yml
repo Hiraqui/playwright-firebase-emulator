@@ -1,0 +1,74 @@
+name: Playwright Tests
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "e2e/**"
+      - "playwright.config.ts"
+      - "src/**"
+      - "public/**"
+      - "next.config.ts"
+      - "tsconfig.json"
+      - "postcss.config.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "types.d.ts"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "e2e/**"
+      - "playwright.config.ts"
+      - "src/**"
+      - "public/**"
+      - "next.config.ts"
+      - "tsconfig.json"
+      - "postcss.config.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "types.d.ts"
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install dependencies
+        run: npm install -g firebase-tools@14.19.1 && npm ci
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+
+      - name: Get Library Versions For Binary Caching emulators
+        id: cache-settings
+        run: |
+          echo "firebase-tools=$(npm -g list -s --depth=0 | grep firebase-tools | tail -n 1 | sed 's/.*@//g')" >> $GITHUB_OUTPUT
+
+      - name: Cache emulators
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: ${{ runner.os }}-firebase-${{ steps.cache-settings.outputs.firebase-tools }}
+
+      - name: Rename env file
+        run: mv .env.default .env
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run Playwright tests with Firebase Emulators
+        run: firebase emulators:exec --project demo-nextjs-zustand-firestore --log-verbosity DEBUG 'npx playwright test'
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: emulators-logs
+          path: "*-debug.log"
+          retention-days: 30
